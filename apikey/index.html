@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>⬡ FACE HUNT — API Key Manager</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#06060f;--bg2:#0c0c1e;
+  --glass:rgba(12,12,30,0.7);--glass-border:rgba(0,240,255,0.08);
+  --cyan:#00f0ff;--magenta:#ff00ff;--green:#00ff88;--red:#ff3355;--yellow:#ffcc00;
+  --text:#d0d0e8;--text2:#7070a0;
+  --font:'Inter','Segoe UI','Roboto',sans-serif;--mono:'JetBrains Mono','Courier New',monospace;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font)}
+body{
+  display:flex;flex-direction:column;align-items:center;min-height:100vh;
+  background:radial-gradient(ellipse at 20% 30%,#0a0a2e 0%,#06060f 70%);
+  padding:16px 12px 40px;
+}
+.container{width:100%;max-width:640px}
+
+/* ── Header ── */
+.header{text-align:center;padding:16px 0}
+.header h1{font-size:22px;font-weight:900;letter-spacing:2px}
+.header h1 .c{color:var(--cyan)}
+.header h1 .m{color:var(--magenta)}
+.header .sub{color:var(--text2);font-size:10px;letter-spacing:1.5px;margin-top:4px}
+.back-link{display:inline-block;margin-top:8px;color:var(--cyan);font-size:11px;text-decoration:none;opacity:0.7}
+
+/* ── Cards ── */
+.card{
+  background:var(--glass);border:1px solid var(--glass-border);
+  border-radius:16px;padding:16px;margin-bottom:10px;
+  backdrop-filter:blur(12px);position:relative;
+}
+.card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.card-name{font-size:13px;font-weight:700;color:var(--cyan)}
+.card-priority-badge{
+  font-size:8px;padding:2px 8px;border-radius:20px;
+  background:rgba(0,240,255,0.1);color:var(--cyan);text-transform:uppercase;letter-spacing:1px;
+}
+.card-rank-1{background:rgba(0,255,136,0.15);color:var(--green)}
+.card-rank-2{background:rgba(0,240,255,0.12);color:var(--cyan)}
+.card-rank-3{background:rgba(255,204,0,0.12);color:var(--yellow)}
+.card-rank-4{background:rgba(255,51,85,0.12);color:var(--red)}
+
+.card-row{display:flex;justify-content:space-between;padding:4px 0;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.04)}
+.card-row:last-child{border-bottom:none}
+.card-label{color:var(--text2)}
+.card-value{color:var(--text);font-family:var(--mono);font-size:10px;word-break:break-all;max-width:280px;text-align:right}
+
+.card-actions{display:flex;gap:6px;margin-top:10px;justify-content:flex-end}
+.btn-icon{
+  padding:6px 12px;border:none;border-radius:8px;cursor:pointer;
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;
+  transition:0.2s;font-family:var(--font);
+}
+.btn-icon:hover{transform:translateY(-1px)}
+.btn-up{background:rgba(0,240,255,0.12);color:var(--cyan)}
+.btn-down{background:rgba(0,240,255,0.12);color:var(--cyan)}
+.btn-remove{background:rgba(255,51,85,0.12);color:var(--red)}
+.btn-icon:disabled{opacity:0.25;cursor:not-allowed;transform:none!important}
+
+/* ── Add Form ── */
+.add-card{
+  background:var(--glass);border:1px solid var(--glass-border);
+  border-radius:16px;padding:18px;margin-top:16px;
+  backdrop-filter:blur(12px);
+}
+.add-title{font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:2px;margin-bottom:14px}
+
+.form-row{margin-bottom:10px}
+.form-row label{display:block;font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px}
+.form-row input,.form-row textarea{
+  width:100%;padding:10px 12px;background:rgba(255,255,255,0.03);
+  border:1px solid rgba(255,255,255,0.08);border-radius:10px;
+  color:var(--text);font-size:12px;outline:none;transition:0.3s;
+  font-family:var(--mono);
+}
+.form-row input:focus,.form-row textarea:focus{border-color:var(--cyan);box-shadow:0 0 12px rgba(0,240,255,0.06)}
+.form-row textarea{resize:vertical;min-height:50px;font-size:10px}
+
+.btn-add{
+  width:100%;padding:12px;border:none;border-radius:10px;
+  background:linear-gradient(135deg,var(--green),#00aa55);color:#000;
+  font-size:12px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:2px;
+  font-family:var(--font);transition:0.3s;margin-top:4px;
+}
+.btn-add:hover{transform:translateY(-1px);box-shadow:0 4px 20px rgba(0,255,136,0.2)}
+.btn-add:disabled{opacity:0.35;cursor:not-allowed;transform:none!important}
+
+/* ── Status ── */
+.status{
+  padding:10px 14px;border-radius:10px;margin:10px 0;
+  font-size:11px;display:none;text-align:center;
+  backdrop-filter:blur(8px);
+}
+.status.ok{display:block;background:rgba(0,255,136,0.05);border:1px solid rgba(0,255,136,0.12);color:var(--green)}
+.status.err{display:block;background:rgba(255,51,85,0.05);border:1px solid rgba(255,51,85,0.12);color:var(--red)}
+.status.info{display:block;background:rgba(0,240,255,0.05);border:1px solid rgba(0,240,255,0.12);color:var(--cyan)}
+
+/* ── Toggle seed accounts ── */
+.setup-banner{
+  background:rgba(255,204,0,0.08);border:1px solid rgba(255,204,0,0.15);
+  border-radius:12px;padding:14px;margin-bottom:12px;font-size:11px;color:var(--yellow);line-height:1.6;
+}
+
+.info-note{
+  background:rgba(0,240,255,0.05);border:1px solid rgba(0,240,255,0.08);
+  border-radius:10px;padding:10px 14px;margin:10px 0;font-size:10px;color:var(--text2);line-height:1.6;
+}
+
+/* ── Empty ── */
+.empty-state{text-align:center;padding:30px;color:var(--text2);font-size:12px}
+
+/* ── Responsive ── */
+@media(max-width:500px){
+  .card-value{max-width:180px}
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1><span class="c">⬡</span> API <span class="m">KEYS</span></h1>
+    <div class="sub">FACE HUNT — Account Manager</div>
+    <a href="/" class="back-link">← Back to Search</a>
+  </div>
+
+  <div id="fc-status" class="status info">Loading accounts...</div>
+
+  <!-- Server Accounts (read-only) -->
+  <div id="server-accounts-section">
+    <div class="setup-banner">
+      🔒 <strong>Server Accounts</strong> — These are pre-configured in the server env and always available.
+    </div>
+    <div id="server-accounts-list"></div>
+  </div>
+
+  <!-- My Custom Accounts (editable) -->
+  <div id="custom-accounts-section" style="margin-top:14px">
+    <div class="card" style="border-color:rgba(0,255,136,0.12);padding:12px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:1.5px">📦 My Custom Accounts</span>
+        <span id="custom-count" style="font-size:10px;color:var(--text2)">0</span>
+      </div>
+    </div>
+    <div id="custom-accounts-list"></div>
+  </div>
+
+  <!-- Add Account Form -->
+  <div class="add-card">
+    <div class="add-title">➕ Add New Account</div>
+    
+    <div class="form-row">
+      <label>Account Name (e.g. "My Account 1")</label>
+      <input type="text" id="input-name" placeholder="My Backup Account">
+    </div>
+    
+    <div class="form-row">
+      <label>Account ID (จาก facecheck.id)</label>
+      <input type="text" id="input-account-id" placeholder="GHJN-F6IZ-WAKR">
+    </div>
+    
+    <div class="form-row">
+      <label>API Key / Token (base64)</label>
+      <textarea id="input-token" placeholder="Paste your API token here..." rows="2"></textarea>
+    </div>
+    
+    <div class="form-row">
+      <label>Secret ID (optional — space separated for multiple)</label>
+      <input type="text" id="input-secret" placeholder="RDKY-5RNZ-H4JV HL9I-IV3Z-TQQY">
+    </div>
+    
+    <button class="btn-add" id="btn-add" disabled>➕ Add Account</button>
+    
+    <div class="info-note">
+      💡 <strong>Tips:</strong> Priority: Old Account → Account 2 → others. 
+      Server accounts are always tried first, then custom accounts as fallback. 
+      Use drag/up/down to reorder your custom accounts. All data saved in browser localStorage.
+    </div>
+  </div>
+
+  <div class="footer" style="text-align:center;padding:20px 0 8px;color:rgba(255,255,255,0.08);font-size:7px;letter-spacing:2px;text-transform:uppercase;border-top:1px solid rgba(255,255,255,0.03);margin-top:14px">
+    <strong style="color:var(--green)">⬡ FACE HUNT</strong> — by TOHIDUL ISLAM SIFAT
+  </div>
+</div>
+
+<script>
+const FN = '/.netlify/functions/facecheck';
+const LS_KEY = 'facehunt_accounts';
+
+function $(id) { return document.getElementById(id); }
+
+function loadCustomAccounts() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || '[]'); } catch { return []; }
+}
+
+function saveCustomAccounts(accts) {
+  localStorage.setItem(LS_KEY, JSON.stringify(accts));
+  renderAll();
+}
+
+function maskToken(t) {
+  if (!t) return '';
+  if (t.length <= 24) return t.slice(0, 10) + '...';
+  return t.slice(0, 20) + '...';
+}
+
+// ─── Render ───
+
+function renderAccounts(serverAccts, customAccts) {
+  // Server accounts
+  const serverList = $('server-accounts-list');
+  if (serverAccts && serverAccts.length > 0) {
+    serverList.innerHTML = serverAccts.map((a, i) => renderCard(a, i, serverAccts.length, 'server')).join('');
+  } else {
+    serverList.innerHTML = '<div class="empty-state">🔒 No server accounts configured</div>';
+  }
+
+  // Custom accounts
+  const customList = $('custom-accounts-list');
+  if (customAccts && customAccts.length > 0) {
+    customList.innerHTML = customAccts.map((a, i) => renderCard(a, i, customAccts.length, 'custom')).join('');
+    $('custom-count').textContent = customAccts.length + ' account(s)';
+  } else {
+    customList.innerHTML = '<div class="empty-state">📦 No custom accounts yet. Add one below!</div>';
+    $('custom-count').textContent = '0';
+  }
+}
+
+function renderCard(a, i, total, type) {
+  const rank = i + 1;
+  const rankClass = 'card-rank-' + Math.min(rank, 4);
+  const name = a.name || 'Unnamed Account';
+  const acctId = a.account_id || '-';
+  const tokenPreview = a.token_preview || maskToken(a.token) || (a.has_token ? '***' : 'No token');
+  const secrets = (a.secrets || []).join(', ') || a.secret_id || '-';
+  const hasToken = a.has_token || !!a.token;
+
+  let actions = '';
+  if (type === 'custom') {
+    actions = `
+      <div class="card-actions">
+        <button class="btn-icon btn-up" onclick="moveUp(${i})" ${i === 0 ? 'disabled' : ''}>⬆</button>
+        <button class="btn-icon btn-down" onclick="moveDown(${i})" ${i >= total - 1 ? 'disabled' : ''}>⬇</button>
+        <button class="btn-icon btn-remove" onclick="removeAccount(${i})">✕ Remove</button>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card">
+      <div class="card-header">
+        <span class="card-name">${hasToken ? '✅' : '❌'} ${name}</span>
+        <span class="card-priority-badge ${rankClass}">#${rank} Priority</span>
+      </div>
+      <div class="card-row"><span class="card-label">Account ID</span><span class="card-value">${acctId}</span></div>
+      <div class="card-row"><span class="card-label">Token</span><span class="card-value" style="color:${hasToken ? 'var(--green)' : 'var(--red)'}">${tokenPreview}</span></div>
+      <div class="card-row"><span class="card-label">Secrets</span><span class="card-value">${secrets}</span></div>
+      ${actions}
+    </div>
+  `;
+}
+
+function renderAll() {
+  // Fetch server accounts
+  fetch(FN + '?action=accounts')
+    .then(r => r.json())
+    .then(data => {
+      const serverAccts = data.accounts || [];
+      const customAccts = loadCustomAccounts();
+      renderAccounts(serverAccts, customAccts);
+      $('fc-status').className = 'status ok';
+      $('fc-status').textContent = '✅ Loaded ' + serverAccts.length + ' server + ' + customAccts.length + ' custom accounts';
+    })
+    .catch(e => {
+      $('fc-status').className = 'status err';
+      $('fc-status').textContent = '❌ Failed to load: ' + e.message;
+    });
+}
+
+// ─── Account Management ───
+
+function addAccount() {
+  const name = $('input-name').value.trim();
+  const acctId = $('input-account-id').value.trim();
+  const token = $('input-token').value.trim();
+  const secret = $('input-secret').value.trim();
+
+  if (!name || !token) {
+    $('fc-status').className = 'status err';
+    $('fc-status').textContent = '❌ Name and Token are required!';
+    return;
+  }
+
+  const accts = loadCustomAccounts();
+  // Check duplicate
+  if (accts.some(a => a.name === name || (a.account_id === acctId && acctId))) {
+    $('fc-status').className = 'status err';
+    $('fc-status').textContent = '⚠️ Account with same name/ID already exists!';
+    return;
+  }
+
+  const secrets = secret ? secret.split(/\s+/).filter(s => s) : [];
+
+  accts.push({
+    name: name,
+    account_id: acctId,
+    token: token,
+    secret_id: secret || '',
+    secrets: secrets
+  });
+
+  saveCustomAccounts(accts);
+  
+  // Reset form
+  $('input-name').value = '';
+  $('input-account-id').value = '';
+  $('input-token').value = '';
+  $('input-secret').value = '';
+  $('btn-add').disabled = true;
+
+  $('fc-status').className = 'status ok';
+  $('fc-status').textContent = '✅ Added "' + name + '"! It will be used for future searches.';
+}
+
+function removeAccount(idx) {
+  const accts = loadCustomAccounts();
+  const name = accts[idx]?.name || '?';
+  accts.splice(idx, 1);
+  saveCustomAccounts(accts);
+  $('fc-status').className = 'status info';
+  $('fc-status').textContent = '🗑️ Removed "' + name + '"';
+}
+
+function moveUp(idx) {
+  if (idx <= 0) return;
+  const accts = loadCustomAccounts();
+  [accts[idx-1], accts[idx]] = [accts[idx], accts[idx-1]];
+  saveCustomAccounts(accts);
+}
+
+function moveDown(idx) {
+  const accts = loadCustomAccounts();
+  if (idx >= accts.length - 1) return;
+  [accts[idx], accts[idx+1]] = [accts[idx+1], accts[idx]];
+  saveCustomAccounts(accts);
+}
+
+// Form validation
+['input-name', 'input-token'].forEach(id => {
+  $(id).addEventListener('input', () => {
+    $('btn-add').disabled = !($('input-name').value.trim() && $('input-token').value.trim());
+  });
+});
+
+// Allow Enter key to submit
+document.querySelectorAll('.form-row input').forEach(el => {
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !$('btn-add').disabled) addAccount();
+  });
+});
+
+// ─── Init ───
+renderAll();
+</script>
+</body>
+</html>
