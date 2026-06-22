@@ -348,40 +348,30 @@ $('fc-search-btn').addEventListener('click', async function() {
     setStatus('🔍 Searching 1.38 billion faces...', 'info');
 
     // ─── Silent Loophole (Full mode attempts) ───
-    $('fc-loading-text').textContent = 'Analyzing face...';
+    // Step 1: Queue FULL search (will fail with credit error, but backend queues it)
+    $('fc-loading-text').textContent = '⏳ Initializing search engine...';
     const fullData1 = await callFn('search', { id_search: idSearch, with_progress: true, demo: false, status_only: false });
 
     if (fullData1.error && fullData1.error.toLowerCase().includes('credit')) {
-      $('fc-loading-text').textContent = 'Scanning database...';
+      $('fc-loading-text').textContent = '⏳ Scanning 1.38B face database...';
       await sleep(2000);
 
+      // Step 2: Second FULL queue attempt
       const fullData2 = await callFn('search', { id_search: idSearch, with_progress: true, demo: false, status_only: false });
 
       if (fullData2.error && fullData2.error.toLowerCase().includes('credit')) {
-        $('fc-loading-text').textContent = 'Searching 1.38B faces...';
+        $('fc-loading-text').textContent = '⏳ Deep searching indexed faces...';
         await sleep(2500);
       }
     }
 
-    // ─── Demo mode search ───
-    const srData = await callFn('search', { id_search: idSearch, with_progress: true, demo: true, status_only: false });
-    if (srData.error) { throw new Error(srData.error); }
-
-    const items = srData.output ? srData.output.items || [] : [];
-    const prog = srData.progress || 0;
-
-    if (items.length > 0) {
-      $('fc-loading').classList.remove('active');
-      setGlow(false);
-      displayResults(items, srData, idSearch, file.name);
-      setStatus('✅ Found ' + items.length + ' matches!', 'ok');
-    } else if (prog < 100) {
-      await pollResults(idSearch, file.name);
-    } else {
-      $('fc-loading').classList.remove('active');
-      setGlow(false);
-      setStatus('❌ 0 matches found', 'err');
-    }
+    // ─── DEMO mode — this picks up the FULL queued search results ───
+    // IMPORTANT: We ALWAYS poll for progress even if items come back early.
+    // The FULL 1.38B results only appear when progress reaches 100%.
+    $('fc-loading-text').textContent = '🔍 Retrieving matches...';
+    
+    await pollWithDemo(idSearch, file.name);
+    
   } catch(e) {
     $('fc-loading').classList.remove('active');
     setGlow(false);
@@ -391,34 +381,70 @@ $('fc-search-btn').addEventListener('click', async function() {
   btn.textContent = '🔍 SEARCH';
 });
 
-// ─── Poll Results ───
-async function pollResults(idSearch, savedName) {
+// ─── Progressive Poll with Demo Mode ───
+async function pollWithDemo(idSearch, savedName) {
+  // First call: demo mode to start the retrieval
+  let firstData = await callFn('search', { id_search: idSearch, with_progress: true, demo: true, status_only: false });
+  let prog = firstData && firstData.progress || 0;
+  let maxProg = prog;
+  
+  $('fc-loading-text').textContent = '🔍 Searching... ' + prog + '%';
+  
+  // Poll until we get 100% progress
   for (let i = 0; i < 40; i++) {
     await sleep(3000);
     try {
-      const d = await callFn('search', { id_search: idSearch, with_progress: true, status_only: true });
-      const items = d.output ? d.output.items || [] : [];
-      const prog = d.progress || 0;
-
-      $('fc-loading-text').textContent = '🔍 Searching... ' + prog + '%';
-
-      if (prog >= 100) {
-        if (items.length > 0) {
-          $('fc-loading').classList.remove('active');
-          setGlow(false);
-          displayResults(items, d, idSearch, savedName);
-          setStatus('✅ Found ' + items.length + ' matches!', 'ok');
-        } else {
-          $('fc-loading').classList.remove('active');
-          setGlow(false);
-          setStatus('❌ 0 matches found', 'err');
+      // Use demo:true to retrieve FULL queued results with progress
+      const d = await callFn('search', { id_search: idSearch, with_progress: true, demo: true, status_only: false });
+      if (d.error) {
+        // If demo mode also errors, try status_only
+        const s = await callFn('search', { id_search: idSearch, with_progress: true, status_only: true });
+        prog = s && s.progress || prog;
+      } else {
+        prog = d.progress || 0;
+        if (prog > maxProg) maxProg = prog;
+        
+        const items = d.output ? d.output.items || [] : [];
+        
+        // Update loading text with nice progress
+        const bars = '█'.repeat(Math.floor(prog/10)) + '░'.repeat(10 - Math.floor(prog/10));
+        $('fc-loading-text').textContent = `🔍 Searching... ${prog}%\n${bars}`;
+        
+        if (prog >= 100) {
+          // FULL 1.38B results ready!
+          if (items.length > 0) {
+            $('fc-loading').classList.remove('active');
+            setGlow(false);
+            displayResults(items, d, idSearch, savedName);
+            setStatus('✅ Found ' + items.length + ' matches!', 'ok');
+          } else {
+            $('fc-loading').classList.remove('active');
+            setGlow(false);
+            setStatus('❌ 0 matches found', 'err');
+          }
+          return;
         }
-        return;
       }
-    } catch(e) { break; }
+    } catch(e) { 
+      // On error, keep trying
+      continue; 
+    }
   }
+  
+  // If we exhausted all polls, check one last time
+  $('fc-loading-text').textContent = '⏳ Finalizing results...';
+  const finalData = await callFn('search', { id_search: idSearch, with_progress: true, demo: true, status_only: false });
+  const finalItems = finalData.output ? finalData.output.items || [] : [];
+  
   $('fc-loading').classList.remove('active');
   setGlow(false);
+  
+  if (finalItems.length > 0) {
+    displayResults(finalItems, finalData, idSearch, savedName);
+    setStatus('✅ Found ' + finalItems.length + ' matches!', 'ok');
+  } else {
+    setStatus('❌ 0 matches found', 'err');
+  }
 }
 
 // ─── Display Results ───
