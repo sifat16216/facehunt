@@ -8,3 +8,9 @@
     Access-Control-Allow-Origin = "*"
     Access-Control-Allow-Methods = "GET, POST, OPTIONS"
     Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+# Pretty URLs
+[[redirects]]
+  from = "/apikey"
+  to = "/apikey/index.html"
+  status = 200
