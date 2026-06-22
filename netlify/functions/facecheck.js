@@ -3,18 +3,27 @@ const crypto = require('crypto');
 
 const SEARCH_API_BASE = 'https://facecheck.id';
 const SEARCH_API = `${SEARCH_API_BASE}/api`;
-const ACCOUNT_PRIORITY = ['Old Account', 'Account 2', 'Account 1', 'Account 5'];
+const ACCOUNT_PRIORITY = ['Old Account', 'Account 2', 'Account 1']; // Account 5 removed (invalid token)
 
 // ─── Account Management ───
+
+// Built-in accounts (fallback when no env var)
+const BUILTIN_ACCOUNTS = [
+  {name:"Old Account", token:"x+Y1Le+x//b8sY0E70JgjIYurok0aqTMDsu0vsJWVPKihdVQ25WRJWuTnS8lH3b7y1+CTv8g3gw=", account_id:"UZ2G-2PNM-UZZQ"},
+  {name:"Account 2", token:"R9nm3AAxa0LFn+yN+wCXpYLLqWurLHN0sh6dURx+FZDaKuUx9hgCRxtq2EWzWUc4AqWvCQ+Tirk=", account_id:"GHJN-F6IZ-WAKR"},
+  {name:"Account 1", token:"mJ/vHLqKO/KboRvqDNgn4CqSEJ/+dYWoRpiV3UYyLZRHR4Utj2lU2DD3xcDhHMRSZilIY+CdoRY=", account_id:"DUAF-JWBN-KZMV"}
+];
 
 function getEnvAccounts() {
   try {
     const raw = process.env.FACECHECK_ACCOUNTS;
-    if (!raw) return [];
-    return JSON.parse(raw);
+    if (!raw) return BUILTIN_ACCOUNTS; // Use built-in as fallback
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.length) return BUILTIN_ACCOUNTS;
+    return parsed;
   } catch (e) { 
     console.error('Failed to parse FACECHECK_ACCOUNTS:', e.message);
-    return []; 
+    return BUILTIN_ACCOUNTS;
   }
 }
 
