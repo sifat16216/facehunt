@@ -174,7 +174,7 @@ body{
       <input type="text" id="input-secret" placeholder="RDKY-5RNZ-H4JV HL9I-IV3Z-TQQY">
     </div>
     
-    <button class="btn-add" id="btn-add" disabled>➕ Add Account</button>
+    <button class="btn-add" id="btn-add" onclick="addAccount()" disabled>➕ Add Account</button>
     
     <div class="info-note">
       💡 <strong>Tips:</strong> Priority: Old Account → Account 2 → others. 
@@ -356,6 +356,9 @@ function moveDown(idx) {
     $('btn-add').disabled = !($('input-name').value.trim() && $('input-token').value.trim());
   });
 });
+
+// Click handler for Add Account button
+$('btn-add').addEventListener('click', addAccount);
 
 // Allow Enter key to submit
 document.querySelectorAll('.form-row input').forEach(el => {
