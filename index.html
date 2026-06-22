@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>⬡ FACE HUNT — AI Face Search Engine</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#06060f;
+  --bg2:#0c0c1e;
+  --glass:rgba(12,12,30,0.7);
+  --glass-border:rgba(0,240,255,0.08);
+  --cyan:#00f0ff;
+  --magenta:#ff00ff;
+  --green:#00ff88;
+  --red:#ff3355;
+  --yellow:#ffcc00;
+  --text:#d0d0e8;
+  --text2:#7070a0;
+  --font:'Inter','Segoe UI','Roboto',sans-serif;
+  --mono:'JetBrains Mono','Courier New',monospace;
+  --glow-green:0 0 30px rgba(0,255,136,0.15),0 0 60px rgba(0,255,136,0.05);
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);overflow-x:hidden}
+body{
+  display:flex;flex-direction:column;align-items:center;min-height:100vh;
+  background:radial-gradient(ellipse at 20% 30%,#0a0a2e 0%,#06060f 70%);
+  padding:16px 12px 40px;
+}
+.container{width:100%;max-width:640px;position:relative}
+
+/* ── Header ── */
+.header{text-align:center;padding:18px 0 14px;position:relative}
+.header h1{font-size:28px;font-weight:900;letter-spacing:3px;text-transform:uppercase;position:relative;display:inline-block}
+.header h1 .c{color:var(--cyan);text-shadow:0 0 20px rgba(0,240,255,0.3)}
+.header h1 .m{color:var(--magenta);text-shadow:0 0 20px rgba(255,0,255,0.2)}
+.header h1 .g{color:var(--green);text-shadow:0 0 20px rgba(0,255,136,0.3)}
+.header .sub{color:var(--text2);font-size:10px;margin-top:4px;letter-spacing:2px;text-transform:uppercase}
+.header .dev{color:#555;font-size:8px;margin-top:6px;letter-spacing:1.5px;text-transform:uppercase;border-top:1px solid rgba(255,255,255,0.04);padding-top:6px;display:inline-block}
+.header .dev span{color:var(--green)}
+
+/* ── Search Card ── */
+.search-card{
+  background:var(--glass);border:1px solid var(--glass-border);
+  border-radius:20px;padding:22px 20px;margin-bottom:14px;
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  position:relative;overflow:hidden;
+  transition:border-color 0.4s,box-shadow 0.4s;
+}
+.search-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;bottom:0;
+  background:linear-gradient(135deg,rgba(0,240,255,0.03),rgba(255,0,255,0.02));
+  pointer-events:none;border-radius:20px;
+}
+.search-card-title{
+  font-size:9px;text-transform:uppercase;letter-spacing:2px;
+  color:var(--magenta);margin-bottom:14px;font-weight:700;position:relative
+}
+.search-card p{font-size:11px;color:var(--text2);margin-bottom:14px;position:relative;line-height:1.6}
+
+/* ── Green Pulse Glow (searching state) ── */
+.search-card.searching{
+  border-color:rgba(0,255,136,0.25);
+  animation:pulseGlow 1.6s ease-in-out infinite;
+}
+@keyframes pulseGlow{
+  0%{box-shadow:0 0 15px rgba(0,255,136,0.06)}
+  50%{box-shadow:0 0 35px rgba(0,255,136,0.18),0 0 60px rgba(0,255,136,0.06)}
+  100%{box-shadow:0 0 15px rgba(0,255,136,0.06)}
+}
+
+/* ── Glass Preview ── */
+.glass-preview{
+  display:none;margin:16px auto 0;
+  width:180px;height:180px;position:relative;
+  border-radius:16px;overflow:hidden;
+  background:rgba(255,255,255,0.02);
+  border:1px solid rgba(255,255,255,0.06);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+}
+.glass-preview.active{display:block}
+.glass-preview img{
+  width:100%;height:100%;object-fit:cover;display:block;
+  border-radius:16px;opacity:0.9;
+  filter:contrast(1.05) saturate(1.1);
+}
+.glass-preview .glass-shine{
+  position:absolute;top:0;left:0;right:0;bottom:0;
+  background:linear-gradient(135deg,rgba(255,255,255,0.08) 0%,rgba(255,255,255,0) 50%,rgba(0,240,255,0.04) 100%);
+  pointer-events:none;border-radius:16px;
+}
+.glass-preview .glass-border-glow{
+  position:absolute;top:-1px;left:-1px;right:-1px;bottom:-1px;
+  border-radius:17px;
+  background:linear-gradient(135deg,rgba(0,240,255,0.15),rgba(255,0,255,0.08),rgba(0,240,255,0.05));
+  z-index:-1;pointer-events:none;
+  mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  mask-composite:exclude;
+  -webkit-mask-composite:exclude;
+  padding:1px;
+}
+.glass-preview .scanner-line {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--green);
+  box-shadow: 0 0 20px 4px var(--green), 0 0 10px var(--green);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+.glass-preview.scanning .scanner-line {
+  opacity: 1;
+  animation: scanLaser 1.5s ease-in-out infinite alternate;
+}
+@keyframes scanLaser {
+  0% { top: 0%; }
+  100% { top: calc(100% - 2px); }
+}/* ── Inputs ── */
+label{display:block;font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;position:relative}
+.file-input-wrap{position:relative}
+.file-input-wrap input[type=file]{
+  width:100%;padding:12px 14px;background:rgba(255,255,255,0.03);
+  border:1px solid rgba(255,255,255,0.08);border-radius:12px;
+  color:var(--text);font-size:13px;outline:none;transition:0.3s;
+  cursor:pointer;position:relative;
+}
+.file-input-wrap input[type=file]:focus{border-color:var(--cyan);box-shadow:0 0 15px rgba(0,240,255,0.06)}
+.file-input-wrap input[type=file]::file-selector-button{
+  padding:6px 16px;border:none;border-radius:8px;
+  background:linear-gradient(135deg,var(--cyan),#0088aa);color:#000;
+  font-size:11px;font-weight:700;cursor:pointer;margin-right:10px;
+  text-transform:uppercase;letter-spacing:0.5px;
+}
+
+/* ── Button ── */
+.btn{
+  display:block;width:100%;padding:15px;
+  border:none;border-radius:12px;font-size:13px;font-weight:800;
+  cursor:pointer;text-transform:uppercase;letter-spacing:2px;
+  transition:0.3s;margin-top:16px;font-family:var(--font);position:relative;
+}
+.btn.cyan{
+  background:linear-gradient(135deg,var(--cyan),#0077aa);
+  color:#000;box-shadow:0 4px 20px rgba(0,240,255,0.15);
+}
+.btn.cyan:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(0,240,255,0.25)}
+.btn:active{transform:scale(0.97)}
+.btn:disabled{opacity:0.35;cursor:not-allowed;transform:none!important;box-shadow:none!important}
+
+/* ── Status ── */
+.status{
+  padding:12px 16px;border-radius:12px;margin:10px 0;
+  font-size:11px;display:none;text-align:center;position:relative;
+  backdrop-filter:blur(8px);
+}
+.status.info{display:block;background:rgba(0,240,255,0.05);border:1px solid rgba(0,240,255,0.12);color:var(--cyan)}
+.status.ok{display:block;background:rgba(0,255,136,0.05);border:1px solid rgba(0,255,136,0.12);color:var(--green)}
+.status.err{display:block;background:rgba(255,51,85,0.05);border:1px solid rgba(255,51,85,0.12);color:var(--red)}
+
+/* ── Loading ── */
+.loading{display:none;text-align:center;padding:24px;position:relative}
+.loading.active{display:block}
+.loading .pulse-ring{
+  width:44px;height:44px;border-radius:50%;margin:0 auto 12px;
+  border:2px solid rgba(0,255,136,0.1);
+  border-top-color:var(--green);
+  animation:spin 0.9s linear infinite;
+  box-shadow:0 0 20px rgba(0,255,136,0.08);
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:11px;color:var(--text2);letter-spacing:1px}
+
+/* ── Results ── */
+.result-item{
+  background:rgba(255,255,255,0.02);
+  border:1px solid rgba(255,255,255,0.06);
+  border-radius:12px;padding:14px;margin-bottom:8px;
+  cursor:pointer;transition:0.25s;
+}
+.result-item:hover{border-color:var(--cyan)!important;background:rgba(0,240,255,0.02)}
+.result-item .score{font-size:26px;font-weight:900;font-family:var(--mono)}
+.result-item .url{font-size:10px;color:var(--cyan);word-break:break-all;margin-top:5px;opacity:0.85}
+.result-item .guid{font-size:8px;color:var(--text2);margin-top:3px}
+.bar{height:5px;border-radius:3px;margin:7px 0;background:rgba(255,255,255,0.04);overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;transition:width 0.5s ease}
+
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
+.stat-box{
+  background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);
+  border-radius:12px;padding:16px;text-align:center;
+  backdrop-filter:blur(8px);
+}
+.stat-box .num{font-size:24px;font-weight:900;font-family:var(--mono);color:var(--cyan)}
+.stat-box .lbl{font-size:8px;color:var(--text2);text-transform:uppercase;letter-spacing:1.5px;margin-top:4px}
+
+.thumbnail-img{width:68px;height:68px;object-fit:cover;border-radius:10px;flex-shrink:0;margin-right:12px}
+
+/* ── Footer ── */
+.footer{
+  text-align:center;padding:16px 0 8px;
+  color:rgba(255,255,255,0.08);font-size:7px;
+  letter-spacing:2px;text-transform:uppercase;
+  border-top:1px solid rgba(255,255,255,0.03);margin-top:10px;
+}
+.footer strong{color:var(--green);font-weight:700}
+
+.hidden{display:none!important}
+
+/* ── Responsive ── */
+@media(max-width:500px){
+  .header h1{font-size:24px}
+  .glass-preview{width:150px;height:150px}
+  .stats{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1><span class="c">⬡</span> FACE <span class="m">HUNT</span></h1>
+    <div class="sub">AI Face Search Engine — 1.38B faces indexed</div>
+    <div class="dev">Developed by <span>TOHIDUL ISLAM SIFAT</span></div>
+  </div>
+
+  <!-- ═══ SEARCH CARD ═══ -->
+  <div class="search-card" id="search-card">
+    <div class="search-card-title">🔍 Face Search</div>
+    <p>Upload a face photo. Our AI scans 1.38 billion faces to find social media profiles and web presence.</p>
+
+    <label>Upload Photo</label>
+    <div class="file-input-wrap">
+      <input type="file" id="fc-input" accept="image/*">
+    </div>
+
+    <!-- Glass Preview -->
+    <div class="glass-preview" id="fc-preview">
+      <img id="fc-preview-img" alt="Preview">
+      <div class="glass-shine"></div>
+      <div class="glass-border-glow"></div>
+      <div class="scanner-line"></div>
+    </div>
+
+    <button class="btn cyan" id="fc-search-btn" disabled>🔍 SEARCH</button>
+  </div>
+
+  <div class="status info" id="fc-status">Select a photo and click Search to begin.</div>
+
+  <div id="fc-loading" class="loading">
+    <div class="pulse-ring"></div>
+    <div class="loading-text" id="fc-loading-text">Processing...</div>
+  </div>
+
+  <div id="fc-results"></div>
+
+  <div class="footer"><strong>⬡ FACE HUNT</strong> — by TOHIDUL ISLAM SIFAT</div>
+</div>
+
+<script>
+// Netlify Function endpoint
+const FN = '/.netlify/functions/facecheck';
+let searching = false;
+
+function $(id) { return document.getElementById(id); }
+
+function setStatus(msg, type) {
+  const el = $('fc-status');
+  el.className = 'status ' + type;
+  el.textContent = msg;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function setGlow(active) {
+  const card = $('search-card');
+  const preview = $('fc-preview');
+  if (active) {
+    card.classList.add('searching');
+    preview.classList.add('scanning');
+  } else {
+    card.classList.remove('searching');
+    preview.classList.remove('scanning');
+  }
+  searching = active;
+}
+
+// ─── Image Preview ───
+$('fc-input').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    $('fc-preview-img').src = ev.target.result;
+    $('fc-preview').classList.add('active');
+    $('fc-search-btn').disabled = false;
+    setStatus('📷 ' + file.name + ' (' + (file.size/1024).toFixed(1) + ' KB)', 'info');
+  };
+  reader.readAsDataURL(file);
+});
+
+// ─── Call Netlify Function ───
+async function callFn(action, body, isFormData) {
+  const url = FN + '?action=' + action;
+  const opts = { method: 'POST' };
+  if (isFormData) {
+    opts.body = body;
+  } else {
+    opts.headers = { 'Content-Type': 'application/json' };
+    opts.body = JSON.stringify(body || {});
+  }
+  const r = await fetch(url, opts);
+  return r.json();
+}
+
+// ─── Search Button ───
+$('fc-search-btn').addEventListener('click', async function() {
+  const file = $('fc-input').files[0];
+  if (!file) return;
+
+  const btn = this;
+  btn.disabled = true;
+  btn.textContent = '⏳ SEARCHING...';
+  setStatus('🔄 Uploading image...', 'info');
+  $('fc-loading').classList.add('active');
+  $('fc-loading-text').textContent = 'Uploading...';
+  $('fc-results').innerHTML = '';
+
+  setGlow(true);
+
+  const formData = new FormData();
+  formData.append('images', file);
+  formData.append('id_search', 'NEW');
+  formData.append('reset_prev_images', 'true');
+
+  try {
+    // ─── Upload via Netlify Function ───
+    const upData = await callFn('upload', formData, true);
+    if (upData.error) { throw new Error(upData.error); }
+    if (!upData.id_search) { throw new Error('Upload failed — no id_search'); }
+
+    const idSearch = upData.id_search;
+    setStatus('🔍 Searching 1.38 billion faces...', 'info');
+
+    // ─── Silent Loophole (Full mode attempts) ───
+    $('fc-loading-text').textContent = 'Analyzing face...';
+    const fullData1 = await callFn('search', { id_search: idSearch, with_progress: true, demo: false, status_only: false });
+
+    if (fullData1.error && fullData1.error.toLowerCase().includes('credit')) {
+      $('fc-loading-text').textContent = 'Scanning database...';
+      await sleep(2000);
+
+      const fullData2 = await callFn('search', { id_search: idSearch, with_progress: true, demo: false, status_only: false });
+
+      if (fullData2.error && fullData2.error.toLowerCase().includes('credit')) {
+        $('fc-loading-text').textContent = 'Searching 1.38B faces...';
+        await sleep(2500);
+      }
+    }
+
+    // ─── Demo mode search ───
+    const srData = await callFn('search', { id_search: idSearch, with_progress: true, demo: true, status_only: false });
+    if (srData.error) { throw new Error(srData.error); }
+
+    const items = srData.output ? srData.output.items || [] : [];
+    const prog = srData.progress || 0;
+
+    if (items.length > 0) {
+      $('fc-loading').classList.remove('active');
+      setGlow(false);
+      displayResults(items, srData, idSearch, file.name);
+      setStatus('✅ Found ' + items.length + ' matches!', 'ok');
+    } else if (prog < 100) {
+      await pollResults(idSearch, file.name);
+    } else {
+      $('fc-loading').classList.remove('active');
+      setGlow(false);
+      setStatus('❌ 0 matches found', 'err');
+    }
+  } catch(e) {
+    $('fc-loading').classList.remove('active');
+    setGlow(false);
+    setStatus('❌ ' + e.message, 'err');
+  }
+  btn.disabled = false;
+  btn.textContent = '🔍 SEARCH';
+});
+
+// ─── Poll Results ───
+async function pollResults(idSearch, savedName) {
+  for (let i = 0; i < 40; i++) {
+    await sleep(3000);
+    try {
+      const d = await callFn('search', { id_search: idSearch, with_progress: true, status_only: true });
+      const items = d.output ? d.output.items || [] : [];
+      const prog = d.progress || 0;
+
+      $('fc-loading-text').textContent = '🔍 Searching... ' + prog + '%';
+
+      if (prog >= 100) {
+        if (items.length > 0) {
+          $('fc-loading').classList.remove('active');
+          setGlow(false);
+          displayResults(items, d, idSearch, savedName);
+          setStatus('✅ Found ' + items.length + ' matches!', 'ok');
+        } else {
+          $('fc-loading').classList.remove('active');
+          setGlow(false);
+          setStatus('❌ 0 matches found', 'err');
+        }
+        return;
+      }
+    } catch(e) { break; }
+  }
+  $('fc-loading').classList.remove('active');
+  setGlow(false);
+}
+
+// ─── Display Results ───
+function displayResults(items, data, idSearch, imageName) {
+  const html = items.map((item, i) => {
+    const sc = item.score || 0;
+    const url = (item.url || '').replace(/\*+$/, '');
+    const guid = (item.guid || '').substring(0, 16);
+    const b64 = item.base64 || '';
+    const color = sc >= 80 ? '#00ff88' : sc >= 60 ? '#00f0ff' : sc >= 40 ? '#ffcc00' : '#ff3355';
+    const barColor = sc >= 80 ? 'var(--green)' : sc >= 60 ? 'var(--cyan)' : sc >= 40 ? 'var(--yellow)' : 'var(--red)';
+
+    let imgHtml = '';
+    if (b64) {
+      const imgSrc = b64.startsWith('data:') ? b64 : 'data:image/webp;base64,' + b64;
+      imgHtml = '<img src="' + imgSrc + '" class="thumbnail-img" style="border:2px solid ' + barColor + '" onerror="this.style.display=\'none\'">';
+    }
+
+    let platformIcon = '🌐';
+    const domain = (url.match(/(?:https?:\/\/)?(?:www\.)?([^\/]+)/) || [])[1] || '';
+    if (domain.includes('tiktok')) platformIcon = '🎵';
+    else if (domain.includes('instagram')) platformIcon = '📸';
+    else if (domain.includes('facebook')) platformIcon = '👤';
+    else if (domain.includes('twitter') || domain.includes('x.com')) platformIcon = '🐦';
+    else if (domain.includes('youtube')) platformIcon = '▶️';
+    else if (domain.includes('linkedin')) platformIcon = '💼';
+
+    return '<div class="result-item" onclick="window.open(\'' + url + '\',\'_blank\')" onmouseover="this.style.borderColor=\'' + barColor + '\'" onmouseout="this.style.borderColor=\'rgba(255,255,255,0.06)\'">' +
+      '<div style="display:flex;align-items:flex-start">' +
+        imgHtml +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center">' +
+            '<span class="score" style="color:' + color + '">' + sc + '%</span>' +
+            '<span style="font-size:9px;color:var(--text2)">#' + (i+1) + '</span>' +
+          '</div>' +
+          '<div class="bar"><div class="bar-fill" style="width:' + sc + '%;background:' + barColor + '"></div></div>' +
+          (url ? '<div class="url">' + platformIcon + ' ' + escHtml(url) + '</div>' : '') +
+          '<div class="guid">🆔 ' + guid + '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  // Platform distribution
+  const platforms = {};
+  items.forEach(item => {
+    const url = (item.url || '').replace(/\*+$/, '');
+    const m = url.match(/(?:https?:\/\/)?(?:www\.)?([^\/]+)/);
+    if (m) {
+      const d = m[1];
+      const names = {'tiktok.com':'TikTok','instagram.com':'Instagram','facebook.com':'Facebook','twitter.com':'X','youtube.com':'YouTube','linkedin.com':'LinkedIn','t.me':'Telegram','reddit.com':'Reddit','github.com':'GitHub','pinterest.com':'Pinterest','snapchat.com':'Snapchat','onlyfans.com':'OnlyFans'};
+      let found = '🌐 Website';
+      for (const [dn,nm] of Object.entries(names)) { if (d.includes(dn)) { found = nm; break; } }
+      platforms[found] = (platforms[found] || 0) + 1;
+    }
+  });
+
+  let summaryHtml = '';
+  if (Object.keys(platforms).length > 0) {
+    summaryHtml = '<div class="result-item" style="cursor:default;padding:12px 14px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--magenta);margin-bottom:8px;font-weight:700">📊 Platform Distribution</div>' +
+      Object.entries(platforms).sort((a,b) => b[1]-a[1]).map(([p,c]) =>
+        '<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,0.04)"><span>' + p + '</span><span style="color:var(--cyan);font-weight:700">' + c + '</span></div>'
+      ).join('') + '</div>';
+  }
+
+  const searched = data.output ? data.output.searchedFaces || '1.38B' : '1.38B';
+  $('fc-results').innerHTML =
+    '<div class="stats"><div class="stat-box"><div class="num" style="color:var(--green)">' + items.length + '</div><div class="lbl">Matches Found</div></div>' +
+    '<div class="stat-box"><div class="num" style="color:var(--cyan)">' + searched + '</div><div class="lbl">Faces Scanned</div></div></div>' +
+    summaryHtml +
+    '<div class="result-item" style="cursor:default;padding:12px 14px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--magenta);margin-bottom:8px;font-weight:700">🎯 Match Results</div>' + html + '</div>';
+}
+</script>
+</body>
+</html>

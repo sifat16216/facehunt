@@ -1,0 +1,8 @@
+{
+  "name": "facehunt",
+  "version": "2.0.0",
+  "description": "Face Hunt - AI Face Search Engine (Netlify Serverless)",
+  "private": true,
+  "type": "module",
+  "dependencies": {}
+}
