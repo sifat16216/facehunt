@@ -265,11 +265,28 @@ const FN = '/.netlify/functions/facecheck';
 const POLL_INTERVAL = 3000;
 const MAX_POLLS = 60;
 const LS_KEY = 'facehunt_accounts';
+const TOGGLE_KEY = 'facehunt_toggles';
 let searching = false;
 
 // ─── Custom accounts from localStorage ───
 function getCustomAccounts() {
   try { return JSON.parse(localStorage.getItem(LS_KEY) || '[]'); } catch { return []; }
+}
+
+// ─── Toggle system (sync with /apikey page) ───
+function loadToggles() {
+  try { return JSON.parse(localStorage.getItem(TOGGLE_KEY) || '{}'); } catch { return {}; }
+}
+
+function isEnabled(name, defaultVal = true) {
+  const toggles = loadToggles();
+  if (toggles[name] === undefined) return defaultVal;
+  return toggles[name];
+}
+
+// Get only enabled accounts in priority order
+function getEnabledAccounts() {
+  return getCustomAccounts().filter(a => isEnabled(a.name, true));
 }
 
 // ─── Helpers ───
@@ -310,8 +327,8 @@ async function callFn(action, body, isFormData) {
   const url = FN + '?action=' + action;
   const opts = { method: 'POST' };
   
-  // Attach custom accounts from localStorage
-  const customAccts = getCustomAccounts();
+  // Attach only ENABLED custom accounts from localStorage (respects ON/OFF toggle)
+  const customAccts = getEnabledAccounts();
   
   if (isFormData) {
     if (customAccts.length > 0) {

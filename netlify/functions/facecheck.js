@@ -57,10 +57,17 @@ function resolveAccounts(eventBody) {
   return accts;
 }
 
-function getBestAccount(accts) {
+function getBestAccount(accts, skipNames = []) {
   if (!accts || !accts.length) return null;
   
-  const sorted = [...accts].sort((a, b) => {
+  // Filter: only enabled accounts (respect ON/OFF toggle), and skip already-failed ones
+  let active = accts.filter(a => a.enabled !== false);
+  if (skipNames.length) {
+    active = active.filter(a => !skipNames.includes(a.name));
+  }
+  if (!active.length) return null;
+  
+  const sorted = [...active].sort((a, b) => {
     const pa = ACCOUNT_PRIORITY.indexOf(a.name);
     const pb = ACCOUNT_PRIORITY.indexOf(b.name);
     if (pa === -1 && pb === -1) return 0;
@@ -72,60 +79,87 @@ function getBestAccount(accts) {
   return sorted[0];
 }
 
-function getToken(accts) {
-  const best = getBestAccount(accts);
-  if (best && best.token) return best.token;
-  
-  // Fallback to env
-  try {
-    const envAccts = getEnvAccounts();
-    const envBest = getBestAccount(envAccts);
-    if (envBest && envBest.token) return envBest.token;
-  } catch (e) {}
-  
-  return process.env.FACECHECK_TOKEN || '';
+function getToken(accts, skipNames = []) {
+  const all = accts && accts.length ? accts : getEnvAccounts();
+  const active = all.filter(a => a.enabled !== false && !skipNames.includes(a.name));
+  if (!active.length) {
+    // Fallback to env token
+    const envToken = process.env.FACECHECK_TOKEN;
+    if (envToken) return envToken;
+    // Last resort: try any account even if all were skipped
+    const anyEnabled = all.filter(a => a.enabled !== false);
+    if (anyEnabled.length) return anyEnabled[0].token || '';
+    return '';
+  }
+  const best = getBestAccount(active);
+  return best?.token || '';
 }
 
 // ─── API Fetch ───
 
 async function apiFetch(path, opts = {}) {
-  const token = getToken(opts._accounts);
-  const headers = { 
-    Authorization: token, 
-    Accept: 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36',
-    Origin: 'https://facecheck.id',
-    Referer: 'https://facecheck.id/'
-  };
+  const allAccts = opts._accounts;
+  let skipNames = [];
   
-  const fetchOpts = { 
-    method: opts.method || 'POST', 
-    headers, 
-    redirect: 'follow' 
-  };
-  
-  if (opts.body) { 
-    fetchOpts.body = opts.body; 
-    if (opts.ct) headers['Content-Type'] = opts.ct; 
-  }
-  
-  for (let i = 0; i < 5; i++) {
-    try {
-      const r = await fetch(`${SEARCH_API}${path}`, fetchOpts);
-      const txt = await r.text();
-      let data; 
-      try { data = JSON.parse(txt); } catch { data = { raw: txt.slice(0, 500) }; }
-      if (r.status === 429 && i < 4) { 
-        await new Promise(x => setTimeout(x, 1000 * (i + 1))); 
-        continue; 
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const token = getToken(allAccts, skipNames);
+    if (!token) {
+      return { status: 503, data: { error: 'No available account tokens (all OFF?)' } };
+    }
+    
+    const headers = { 
+      Authorization: token, 
+      Accept: 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36',
+      Origin: 'https://facecheck.id',
+      Referer: 'https://facecheck.id/'
+    };
+    
+    const fetchOpts = { 
+      method: opts.method || 'POST', 
+      headers, 
+      redirect: 'follow' 
+    };
+    
+    if (opts.body) { 
+      fetchOpts.body = opts.body; 
+      if (opts.ct) headers['Content-Type'] = opts.ct; 
+    }
+    
+    for (let i = 0; i < 3; i++) {
+      try {
+        const r = await fetch(`${SEARCH_API}${path}`, fetchOpts);
+        const txt = await r.text();
+        let data; 
+        try { data = JSON.parse(txt); } catch { data = { raw: txt.slice(0, 500) }; }
+        if (r.status === 429 && i < 2) { 
+          await new Promise(x => setTimeout(x, 1000 * (i + 1))); 
+          continue; 
+        }
+        if (!r.ok) data._proxy_error = `HTTP ${r.status}`;
+        
+        // If this account failed with credit/auth error, try next account
+        const failedName = getBestAccount(allAccts, skipNames)?.name;
+        if ((data.error === 'No credits left' || 
+            data.error === 'Invalid API token!' ||
+            data.error?.includes('credit') ||
+            data.code === 'EXCEPTION' ||
+            (data.has_credits_to_search === false && data.error)) && failedName) {
+          skipNames.push(failedName);
+          break; // Break inner retry loop, try next account
+        }
+        
+        return { status: r.status, data, _account_token: token?.slice(0, 15) };
+      } catch (e) { 
+        if (i >= 2) {
+          const failedName = getBestAccount(allAccts, skipNames)?.name;
+          if (failedName) skipNames.push(failedName);
+          break;
+        }
       }
-      if (!r.ok) data._proxy_error = `HTTP ${r.status}`;
-      return { status: r.status, data };
-    } catch (e) { 
-      if (i >= 4) return { status: 502, data: { error: e.message } }; 
     }
   }
-  return { status: 502, data: { error: 'Max retries' } };
+  return { status: 502, data: { error: 'All accounts exhausted or failed' } };
 }
 
 // ─── Multipart Parsing ───

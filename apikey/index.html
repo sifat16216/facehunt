@@ -63,6 +63,28 @@ body{
 .btn-remove{background:rgba(255,51,85,0.12);color:var(--red)}
 .btn-icon:disabled{opacity:0.25;cursor:not-allowed;transform:none!important}
 
+/* ── Toggle Switch ── */
+.toggle-wrap{display:flex;align-items:center;gap:6px}
+.toggle{
+  width:36px;height:20px;border-radius:10px;cursor:pointer;
+  transition:0.25s;border:none;position:relative;flex-shrink:0;
+}
+.toggle.on{background:var(--green);box-shadow:0 0 8px rgba(0,255,136,0.2)}
+.toggle.off{background:rgba(255,255,255,0.1)}
+.toggle::after{
+  content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;
+  border-radius:50%;background:#fff;transition:0.25s;
+}
+.toggle.on::after{left:18px}
+.toggle.off::after{left:2px;background:rgba(255,255,255,0.4)}
+.toggle-label{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px}
+.toggle-label.on{color:var(--green)}
+.toggle-label.off{color:var(--text2)}
+
+/* Disabled card state */
+.card.disabled{opacity:0.4;border-color:rgba(255,255,255,0.04)}
+.card.disabled .card-name{color:var(--text2)}
+
 /* ── Add Form ── */
 .add-card{
   background:var(--glass);border:1px solid var(--glass-border);
@@ -131,10 +153,11 @@ body{
 
   <div id="fc-status" class="status info">Loading accounts...</div>
 
-  <!-- Server Accounts (read-only) -->
+  <!-- All Accounts -->
   <div id="server-accounts-section">
     <div class="setup-banner">
-      🔒 <strong>Server Accounts</strong> — These are pre-configured in the server env and always available.
+      🔑 <strong>Account Manager</strong> — Toggle ON/OFF each account. Use ⬆⬇ to set priority order. 
+      Only <strong>ON</strong> accounts participate in searches (auto-fallback: #1 fails → #2 → #3...).
     </div>
     <div id="server-accounts-list"></div>
   </div>
@@ -177,9 +200,10 @@ body{
     <button class="btn-add" id="btn-add" onclick="addAccount()" disabled>➕ Add Account</button>
     
     <div class="info-note">
-      💡 <strong>Tips:</strong> Priority: Old Account → Account 2 → others. 
-      Server accounts are always tried first, then custom accounts as fallback. 
-      Use drag/up/down to reorder your custom accounts. All data saved in browser localStorage.
+      💡 <strong>How it works:</strong> Set accounts <b>ON</b> to include in rotation. 
+      Priority: #1 → tries first → fails → #2 → fails → #3... 
+      Use ⬆⬇ to reorder. OFF accounts are completely skipped.
+      All data saved in browser localStorage.
     </div>
   </div>
 
@@ -191,6 +215,7 @@ body{
 <script>
 const FN = '/.netlify/functions/facecheck';
 const LS_KEY = 'facehunt_accounts';
+const TOGGLE_KEY = 'facehunt_toggles'; // { "Account Name": true/false }
 
 function $(id) { return document.getElementById(id); }
 
@@ -201,6 +226,37 @@ function loadCustomAccounts() {
 function saveCustomAccounts(accts) {
   localStorage.setItem(LS_KEY, JSON.stringify(accts));
   renderAll();
+}
+
+// ─── Toggle System ───
+
+function loadToggles() {
+  try { return JSON.parse(localStorage.getItem(TOGGLE_KEY) || '{}'); } catch { return {}; }
+}
+
+function saveToggles(toggles) {
+  localStorage.setItem(TOGGLE_KEY, JSON.stringify(toggles));
+}
+
+function isEnabled(name, defaultVal = true) {
+  const toggles = loadToggles();
+  if (toggles[name] === undefined) return defaultVal;
+  return toggles[name];
+}
+
+function toggleAccount(name) {
+  const toggles = loadToggles();
+  toggles[name] = !(toggles[name] === undefined ? true : toggles[name]);
+  saveToggles(toggles);
+  renderAll();
+  const status = toggles[name] ? '🟢 ON' : '🔴 OFF';
+  $('fc-status').className = 'status info';
+  $('fc-status').textContent = status + ' — "' + name + '"';
+}
+
+// Get only enabled accounts in priority order
+function getEnabledAccounts(allAccts) {
+  return allAccts.filter(a => isEnabled(a.name, true));
 }
 
 function maskToken(t) {
@@ -239,22 +295,40 @@ function renderCard(a, i, total, type) {
   const tokenPreview = a.token_preview || maskToken(a.token) || (a.has_token ? '***' : 'No token');
   const secrets = (a.secrets || []).join(', ') || a.secret_id || '-';
   const hasToken = a.has_token || !!a.token;
+  const enabled = isEnabled(name, true);
+  const disabledClass = enabled ? '' : 'disabled';
+
+  const toggleHtml = `
+    <div class="toggle-wrap">
+      <button class="toggle ${enabled ? 'on' : 'off'}" onclick="toggleAccount('${name.replace(/'/g, "\\'")}')"></button>
+      <span class="toggle-label ${enabled ? 'on' : 'off'}">${enabled ? 'ON' : 'OFF'}</span>
+    </div>
+  `;
 
   let actions = '';
   if (type === 'custom') {
     actions = `
       <div class="card-actions">
+        ${toggleHtml}
         <button class="btn-icon btn-up" onclick="moveUp(${i})" ${i === 0 ? 'disabled' : ''}>⬆</button>
         <button class="btn-icon btn-down" onclick="moveDown(${i})" ${i >= total - 1 ? 'disabled' : ''}>⬇</button>
         <button class="btn-icon btn-remove" onclick="removeAccount(${i})">✕ Remove</button>
       </div>
     `;
+  } else if (type === 'server') {
+    actions = `
+      <div class="card-actions">
+        ${toggleHtml}
+      </div>
+    `;
   }
 
+  const statusIcon = enabled ? (hasToken ? '✅' : '❌') : '⏸️';
+
   return `
-    <div class="card">
+    <div class="card ${disabledClass}">
       <div class="card-header">
-        <span class="card-name">${hasToken ? '✅' : '❌'} ${name}</span>
+        <span class="card-name">${statusIcon} ${name}</span>
         <span class="card-priority-badge ${rankClass}">#${rank} Priority</span>
       </div>
       <div class="card-row"><span class="card-label">Account ID</span><span class="card-value">${acctId}</span></div>
