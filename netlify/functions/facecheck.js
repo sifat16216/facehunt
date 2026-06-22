@@ -83,19 +83,37 @@ async function apiFetch(path, opts = {}) {
 }
 
 function parseMultipart(buf, boundary) {
-  const parts = buf.split(Buffer.from(`--${boundary}`));
+  // Manual split using indexOf (Buffer.split() doesn't exist)
+  const delim = Buffer.from(`--${boundary}`);
   const files = {}, fields = {};
-  for (const part of parts) {
-    const idx = part.indexOf(Buffer.from('\r\n\r\n'));
-    if (idx === -1) continue;
-    const hdr = part.slice(0, idx).toString('latin1');
-    let content = part.slice(idx + 4);
-    if (content.length > 2 && content[content.length-2] === 0x0d && content[content.length-1] === 0x0a) content = content.slice(0, -2);
+  let start = 0;
+  while (start < buf.length) {
+    const idx = buf.indexOf(delim, start);
+    if (idx === -1) break;
+    start = idx + delim.length;
+    // Check if this is the closing boundary (--\r\n at end)
+    if (start + 2 <= buf.length && buf[start] === 0x2d && buf[start+1] === 0x2d) break;
+    // Skip the \r\n after boundary
+    if (buf[start] === 0x0d && buf[start+1] === 0x0a) start += 2;
+    // Find end of this part (next boundary)
+    const nextIdx = buf.indexOf(delim, start);
+    const partEnd = nextIdx === -1 ? buf.length : nextIdx;
+    const part = buf.slice(start, partEnd);
+    // Trim trailing \r\n
+    let contentEnd = part.length;
+    if (contentEnd >= 2 && part[contentEnd-2] === 0x0d && part[contentEnd-1] === 0x0a) contentEnd -= 2;
+    const partData = part.slice(0, contentEnd);
+    // Find header/content separator
+    const sepIdx = partData.indexOf(Buffer.from('\r\n\r\n'));
+    if (sepIdx === -1) continue;
+    const hdr = partData.slice(0, sepIdx).toString('latin1');
+    const body = partData.slice(sepIdx + 4);
     const nm = (hdr.match(/name="([^"]*)"/) || [])[1]; if (!nm) continue;
     const fn = (hdr.match(/filename="([^"]*)"/) || [])[1];
     const mime = (hdr.match(/Content-Type:\s*(\S+)/) || [])[1] || 'image/jpeg';
-    if (fn) files[nm] = { filename: fn, data: content, mime };
-    else fields[nm] = content.toString('utf-8');
+    if (fn) files[nm] = { filename: fn, data: body, mime };
+    else fields[nm] = body.toString('utf-8');
+    start = partEnd;
   }
   return { files, fields };
 }
