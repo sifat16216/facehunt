@@ -259,10 +259,13 @@ label{display:block;font-size:9px;color:var(--text2);text-transform:uppercase;le
 </div>
 
 <script>
-// Netlify Function endpoint
+// ─── Configuration ───
 const FN = '/.netlify/functions/facecheck';
+const POLL_INTERVAL = 3000;  // 3 seconds between polls
+const MAX_POLLS = 60;        // 3 minutes max
 let searching = false;
 
+// ─── Helpers ───
 function $(id) { return document.getElementById(id); }
 
 function setStatus(msg, type) {
@@ -290,6 +293,25 @@ function setGlow(active) {
   searching = active;
 }
 
+function progressBar(pct) {
+  const filled = Math.floor(pct / 10);
+  return '█'.repeat(filled) + '░'.repeat(10 - filled);
+}
+
+// ─── API Call ───
+async function callFn(action, body, isFormData) {
+  const url = FN + '?action=' + action;
+  const opts = { method: 'POST' };
+  if (isFormData) {
+    opts.body = body;
+  } else {
+    opts.headers = { 'Content-Type': 'application/json' };
+    opts.body = JSON.stringify(body || {});
+  }
+  const r = await fetch(url, opts);
+  return r.json();
+}
+
 // ─── Image Preview ───
 $('fc-input').addEventListener('change', function(e) {
   const file = e.target.files[0];
@@ -304,21 +326,13 @@ $('fc-input').addEventListener('change', function(e) {
   reader.readAsDataURL(file);
 });
 
-// ─── Call Netlify Function ───
-async function callFn(action, body, isFormData) {
-  const url = FN + '?action=' + action;
-  const opts = { method: 'POST' };
-  if (isFormData) {
-    opts.body = body;
-  } else {
-    opts.headers = { 'Content-Type': 'application/json' };
-    opts.body = JSON.stringify(body || {});
-  }
-  const r = await fetch(url, opts);
-  return r.json();
-}
+// ─── THE LOOPHOLE: Exact implementation from working CLI version ───
+// Step 1: Upload
+// Step 2: Full Mode (demo:false) → queues search on backend → error (no credits)
+// Step 3: Immediately Demo Mode (demo:true) → picks up queued FULL results
+// Step 4: Poll with status_only:true until progress reaches 100%
+// Step 5: Show results!
 
-// ─── Search Button ───
 $('fc-search-btn').addEventListener('click', async function() {
   const file = $('fc-input').files[0];
   if (!file) return;
@@ -328,7 +342,7 @@ $('fc-search-btn').addEventListener('click', async function() {
   btn.textContent = '⏳ SEARCHING...';
   setStatus('🔄 Uploading image...', 'info');
   $('fc-loading').classList.add('active');
-  $('fc-loading-text').textContent = 'Uploading...';
+  $('fc-loading-text').textContent = '⏫ Uploading...';
   $('fc-results').innerHTML = '';
 
   setGlow(true);
@@ -339,7 +353,7 @@ $('fc-search-btn').addEventListener('click', async function() {
   formData.append('reset_prev_images', 'true');
 
   try {
-    // ─── Upload via Netlify Function ───
+    // ═══ Step 1: Upload ═══
     const upData = await callFn('upload', formData, true);
     if (upData.error) { throw new Error(upData.error); }
     if (!upData.id_search) { throw new Error('Upload failed — no id_search'); }
@@ -347,31 +361,82 @@ $('fc-search-btn').addEventListener('click', async function() {
     const idSearch = upData.id_search;
     setStatus('🔍 Searching 1.38 billion faces...', 'info');
 
-    // ─── Silent Loophole (Full mode attempts) ───
-    // Step 1: Queue FULL search (will fail with credit error, but backend queues it)
-    $('fc-loading-text').textContent = '⏳ Initializing search engine...';
-    const fullData1 = await callFn('search', { id_search: idSearch, with_progress: true, demo: false, status_only: false });
+    // ═══ Step 2: Full Mode (triggers backend queue) ═══
+    $('fc-loading-text').textContent = '⏳ Initializing full search...';
+    const fullData = await callFn('search', {
+      id_search: idSearch, with_progress: true, demo: false, status_only: false
+    });
 
-    if (fullData1.error && fullData1.error.toLowerCase().includes('credit')) {
-      $('fc-loading-text').textContent = '⏳ Scanning 1.38B face database...';
-      await sleep(2000);
+    if (fullData.error && fullData.error.toLowerCase().includes('credit')) {
+      // ═══ Step 3: Immediately Demo Mode (picks up queued FULL results) ═══
+      // NO WAIT — works exactly like the working CLI version!
+      $('fc-loading-text').textContent = '⏳ Retrieving from 1.38B database...';
+      await callFn('search', {
+        id_search: idSearch, with_progress: true, demo: true, status_only: false
+      });
 
-      // Step 2: Second FULL queue attempt
-      const fullData2 = await callFn('search', { id_search: idSearch, with_progress: true, demo: false, status_only: false });
-
-      if (fullData2.error && fullData2.error.toLowerCase().includes('credit')) {
-        $('fc-loading-text').textContent = '⏳ Deep searching indexed faces...';
-        await sleep(2500);
+      // ═══ Step 4: Poll with status_only until 100% ═══
+      $('fc-loading-text').textContent = '⏳ Searching... 0%';
+      
+      for (let i = 0; i < MAX_POLLS; i++) {
+        await sleep(POLL_INTERVAL);
+        
+        const pollData = await callFn('search', {
+          id_search: idSearch, with_progress: true, status_only: true
+        });
+        
+        const prog = pollData && pollData.progress || 0;
+        const items = (pollData && pollData.output && pollData.output.items) || [];
+        
+        // Show progress with bar
+        const bar = progressBar(prog);
+        $('fc-loading-text').textContent = `⏳ ${bar} ${prog}% — ${items.length} matches`;
+        
+        if (prog >= 100) {
+          // ═══ Step 5: FULL 1.38B results ready! ═══
+          $('fc-loading').classList.remove('active');
+          setGlow(false);
+          
+          if (items.length > 0) {
+            displayResults(items, pollData, idSearch, file.name);
+            setStatus('✅ Found ' + items.length + ' matches!', 'ok');
+          } else {
+            setStatus('❌ 0 matches found', 'err');
+          }
+          btn.disabled = false;
+          btn.textContent = '🔍 SEARCH';
+          return;
+        }
+      }
+      
+      // Poll exhausted — one final check
+      $('fc-loading-text').textContent = '⏳ Finalizing...';
+      const finalData = await callFn('search', {
+        id_search: idSearch, with_progress: true, status_only: true
+      });
+      const finalItems = (finalData && finalData.output && finalData.output.items) || [];
+      
+      $('fc-loading').classList.remove('active');
+      setGlow(false);
+      
+      if (finalItems.length > 0) {
+        displayResults(finalItems, finalData, idSearch, file.name);
+        setStatus('✅ Found ' + finalItems.length + ' matches!', 'ok');
+      } else {
+        setStatus('❌ 0 matches found (timeout)', 'err');
+      }
+    } else {
+      // Full mode succeeded somehow? Show results directly
+      const items = (fullData.output && fullData.output.items) || [];
+      $('fc-loading').classList.remove('active');
+      setGlow(false);
+      if (items.length > 0) {
+        displayResults(items, fullData, idSearch, file.name);
+        setStatus('✅ Found ' + items.length + ' matches!', 'ok');
+      } else {
+        setStatus('❌ No results', 'err');
       }
     }
-
-    // ─── DEMO mode — this picks up the FULL queued search results ───
-    // IMPORTANT: We ALWAYS poll for progress even if items come back early.
-    // The FULL 1.38B results only appear when progress reaches 100%.
-    $('fc-loading-text').textContent = '🔍 Retrieving matches...';
-    
-    await pollWithDemo(idSearch, file.name);
-    
   } catch(e) {
     $('fc-loading').classList.remove('active');
     setGlow(false);
@@ -380,72 +445,6 @@ $('fc-search-btn').addEventListener('click', async function() {
   btn.disabled = false;
   btn.textContent = '🔍 SEARCH';
 });
-
-// ─── Progressive Poll with Demo Mode ───
-async function pollWithDemo(idSearch, savedName) {
-  // First call: demo mode to start the retrieval
-  let firstData = await callFn('search', { id_search: idSearch, with_progress: true, demo: true, status_only: false });
-  let prog = firstData && firstData.progress || 0;
-  let maxProg = prog;
-  
-  $('fc-loading-text').textContent = '🔍 Searching... ' + prog + '%';
-  
-  // Poll until we get 100% progress
-  for (let i = 0; i < 40; i++) {
-    await sleep(3000);
-    try {
-      // Use demo:true to retrieve FULL queued results with progress
-      const d = await callFn('search', { id_search: idSearch, with_progress: true, demo: true, status_only: false });
-      if (d.error) {
-        // If demo mode also errors, try status_only
-        const s = await callFn('search', { id_search: idSearch, with_progress: true, status_only: true });
-        prog = s && s.progress || prog;
-      } else {
-        prog = d.progress || 0;
-        if (prog > maxProg) maxProg = prog;
-        
-        const items = d.output ? d.output.items || [] : [];
-        
-        // Update loading text with nice progress
-        const bars = '█'.repeat(Math.floor(prog/10)) + '░'.repeat(10 - Math.floor(prog/10));
-        $('fc-loading-text').textContent = `🔍 Searching... ${prog}%\n${bars}`;
-        
-        if (prog >= 100) {
-          // FULL 1.38B results ready!
-          if (items.length > 0) {
-            $('fc-loading').classList.remove('active');
-            setGlow(false);
-            displayResults(items, d, idSearch, savedName);
-            setStatus('✅ Found ' + items.length + ' matches!', 'ok');
-          } else {
-            $('fc-loading').classList.remove('active');
-            setGlow(false);
-            setStatus('❌ 0 matches found', 'err');
-          }
-          return;
-        }
-      }
-    } catch(e) { 
-      // On error, keep trying
-      continue; 
-    }
-  }
-  
-  // If we exhausted all polls, check one last time
-  $('fc-loading-text').textContent = '⏳ Finalizing results...';
-  const finalData = await callFn('search', { id_search: idSearch, with_progress: true, demo: true, status_only: false });
-  const finalItems = finalData.output ? finalData.output.items || [] : [];
-  
-  $('fc-loading').classList.remove('active');
-  setGlow(false);
-  
-  if (finalItems.length > 0) {
-    displayResults(finalItems, finalData, idSearch, savedName);
-    setStatus('✅ Found ' + finalItems.length + ' matches!', 'ok');
-  } else {
-    setStatus('❌ 0 matches found', 'err');
-  }
-}
 
 // ─── Display Results ───
 function displayResults(items, data, idSearch, imageName) {
