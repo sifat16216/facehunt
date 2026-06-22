@@ -153,25 +153,25 @@ body{
 
   <div id="fc-status" class="status info">Loading accounts...</div>
 
-  <!-- All Accounts -->
-  <div id="server-accounts-section">
+  <!-- All Accounts (unified) -->
+  <div id="accounts-section">
     <div class="setup-banner">
-      🔑 <strong>Account Manager</strong> — Toggle ON/OFF each account. Use ⬆⬇ to set priority order. 
-      Only <strong>ON</strong> accounts participate in searches (auto-fallback: #1 fails → #2 → #3...).
+      🔑 <strong>Account Manager</strong> — Toggle ON/OFF. Use ⬆⬇ to set priority. 
+      Only <strong>ON</strong> accounts participate. ✕ to remove (restore below).
     </div>
-    <div id="server-accounts-list"></div>
+    <div id="accounts-list"></div>
+    
+    <!-- Restore removed accounts -->
+    <div id="restore-section" style="display:none;margin-top:6px;text-align:center">
+      <button onclick="restoreAll()" style="background:rgba(0,240,255,0.08);border:1px solid rgba(0,240,255,0.12);color:var(--cyan);padding:8px 16px;border-radius:10px;cursor:pointer;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;font-family:var(--font)">
+        🔙 Restore <span id="restore-count">0</span>
+      </button>
+    </div>
   </div>
 
-  <!-- My Custom Accounts (editable) -->
-  <div id="custom-accounts-section" style="margin-top:14px">
-    <div class="card" style="border-color:rgba(0,255,136,0.12);padding:12px 16px">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:1.5px">📦 My Custom Accounts</span>
-        <span id="custom-count" style="font-size:10px;color:var(--text2)">0</span>
-      </div>
-    </div>
-    <div id="custom-accounts-list"></div>
-  </div>
+  <!-- Remove the old separate sections -->
+  <div style="display:none" id="server-accounts-section"></div>
+  <div style="display:none" id="custom-accounts-section"></div>
 
   <!-- Add Account Form -->
   <div class="add-card">
@@ -215,9 +215,15 @@ body{
 <script>
 const FN = '/.netlify/functions/facecheck';
 const LS_KEY = 'facehunt_accounts';
-const TOGGLE_KEY = 'facehunt_toggles'; // { "Account Name": true/false }
+const TOGGLE_KEY = 'facehunt_toggles';
+const ORDER_KEY = 'facehunt_order';    // ["Account Name", ...] priority order
+const REMOVED_KEY = 'facehunt_removed'; // ["Account Name", ...] removed accounts
+
+let allMergedAccounts = []; // Current merged + sorted full list
 
 function $(id) { return document.getElementById(id); }
+
+// ─── localStorage helpers ───
 
 function loadCustomAccounts() {
   try { return JSON.parse(localStorage.getItem(LS_KEY) || '[]'); } catch { return []; }
@@ -225,10 +231,7 @@ function loadCustomAccounts() {
 
 function saveCustomAccounts(accts) {
   localStorage.setItem(LS_KEY, JSON.stringify(accts));
-  renderAll();
 }
-
-// ─── Toggle System ───
 
 function loadToggles() {
   try { return JSON.parse(localStorage.getItem(TOGGLE_KEY) || '{}'); } catch { return {}; }
@@ -236,6 +239,22 @@ function loadToggles() {
 
 function saveToggles(toggles) {
   localStorage.setItem(TOGGLE_KEY, JSON.stringify(toggles));
+}
+
+function loadOrder() {
+  try { return JSON.parse(localStorage.getItem(ORDER_KEY) || '[]'); } catch { return []; }
+}
+
+function saveOrder(order) {
+  localStorage.setItem(ORDER_KEY, JSON.stringify(order));
+}
+
+function loadRemoved() {
+  try { return JSON.parse(localStorage.getItem(REMOVED_KEY) || '[]'); } catch { return []; }
+}
+
+function saveRemoved(removed) {
+  localStorage.setItem(REMOVED_KEY, JSON.stringify(removed));
 }
 
 function isEnabled(name, defaultVal = true) {
@@ -249,45 +268,69 @@ function toggleAccount(name) {
   toggles[name] = !(toggles[name] === undefined ? true : toggles[name]);
   saveToggles(toggles);
   renderAll();
-  const status = toggles[name] ? '🟢 ON' : '🔴 OFF';
   $('fc-status').className = 'status info';
-  $('fc-status').textContent = status + ' — "' + name + '"';
+  $('fc-status').textContent = (toggles[name] ? '🟢 ON' : '🔴 OFF') + ' — "' + name + '"';
 }
 
-// Get only enabled accounts in priority order
-function getEnabledAccounts(allAccts) {
-  return allAccts.filter(a => isEnabled(a.name, true));
+// ─── Merge & Sort ───
+
+function mergeAccounts(serverAccts, customAccts) {
+  const removed = loadRemoved();
+  // Filter out removed accounts
+  const visible = (src, isCustom) => src
+    .filter(a => !removed.includes(a.name))
+    .map(a => ({ ...a, _isCustom: isCustom }));
+  
+  let merged = [
+    ...visible(serverAccts, false),
+    ...visible(customAccts, true)
+  ];
+  
+  // Apply user's saved order if it exists
+  const savedOrder = loadOrder();
+  if (savedOrder.length > 0) {
+    const ordered = [];
+    // First add accounts in saved order
+    for (const name of savedOrder) {
+      const idx = merged.findIndex(a => a.name === name);
+      if (idx >= 0) {
+        ordered.push(merged[idx]);
+        merged.splice(idx, 1);
+      }
+    }
+    // Then append any remaining (new accounts not yet in saved order)
+    ordered.push(...merged);
+    merged = ordered;
+  }
+  
+  allMergedAccounts = merged;
+  return merged;
 }
 
-function maskToken(t) {
-  if (!t) return '';
-  if (t.length <= 24) return t.slice(0, 10) + '...';
-  return t.slice(0, 20) + '...';
+function saveCurrentOrder() {
+  saveOrder(allMergedAccounts.map(a => a.name));
 }
 
 // ─── Render ───
 
-function renderAccounts(serverAccts, customAccts) {
-  // Server accounts
-  const serverList = $('server-accounts-list');
-  if (serverAccts && serverAccts.length > 0) {
-    serverList.innerHTML = serverAccts.map((a, i) => renderCard(a, i, serverAccts.length, 'server')).join('');
-  } else {
-    serverList.innerHTML = '<div class="empty-state">🔒 No server accounts configured</div>';
+function renderAllAccounts(accts) {
+  const list = $('accounts-list');
+  if (!accts || !accts.length) {
+    list.innerHTML = '<div class="empty-state">📭 No accounts. Add one below or enable removed ones.</div>';
+    return;
   }
-
-  // Custom accounts
-  const customList = $('custom-accounts-list');
-  if (customAccts && customAccts.length > 0) {
-    customList.innerHTML = customAccts.map((a, i) => renderCard(a, i, customAccts.length, 'custom')).join('');
-    $('custom-count').textContent = customAccts.length + ' account(s)';
-  } else {
-    customList.innerHTML = '<div class="empty-state">📦 No custom accounts yet. Add one below!</div>';
-    $('custom-count').textContent = '0';
+  
+  list.innerHTML = accts.map((a, i) => renderCard(a, i, accts.length)).join('');
+  
+  // Show/hide restore button
+  const removed = loadRemoved();
+  $('restore-section').style.display = removed.length > 0 ? 'block' : 'none';
+  if (removed.length > 0) {
+    $('restore-count').textContent = removed.length + ' account(s) hidden';
   }
 }
 
-function renderCard(a, i, total, type) {
+function renderCard(a, i, total) {
   const rank = i + 1;
   const rankClass = 'card-rank-' + Math.min(rank, 4);
   const name = a.name || 'Unnamed Account';
@@ -297,6 +340,7 @@ function renderCard(a, i, total, type) {
   const hasToken = a.has_token || !!a.token;
   const enabled = isEnabled(name, true);
   const disabledClass = enabled ? '' : 'disabled';
+  const isCustom = a._isCustom;
 
   const toggleHtml = `
     <div class="toggle-wrap">
@@ -305,31 +349,24 @@ function renderCard(a, i, total, type) {
     </div>
   `;
 
-  let actions = '';
-  if (type === 'custom') {
-    actions = `
-      <div class="card-actions">
-        ${toggleHtml}
-        <button class="btn-icon btn-up" onclick="moveUp(${i})" ${i === 0 ? 'disabled' : ''}>⬆</button>
-        <button class="btn-icon btn-down" onclick="moveDown(${i})" ${i >= total - 1 ? 'disabled' : ''}>⬇</button>
-        <button class="btn-icon btn-remove" onclick="removeAccount(${i})">✕ Remove</button>
-      </div>
-    `;
-  } else if (type === 'server') {
-    actions = `
-      <div class="card-actions">
-        ${toggleHtml}
-      </div>
-    `;
-  }
+  const actions = `
+    <div class="card-actions">
+      ${toggleHtml}
+      <button class="btn-icon btn-up" onclick="moveUp(${i})" ${i === 0 ? 'disabled' : ''}>⬆</button>
+      <button class="btn-icon btn-down" onclick="moveDown(${i})" ${i >= total - 1 ? 'disabled' : ''}>⬇</button>
+      <button class="btn-icon btn-remove" onclick="removeAccount('${name.replace(/'/g, "\\'")}', ${isCustom})">✕ Remove</button>
+    </div>
+  `;
 
   const statusIcon = enabled ? (hasToken ? '✅' : '❌') : '⏸️';
+  const typeLabel = isCustom ? '📦 Custom' : '🔒 Built-in';
+  const typeColor = isCustom ? 'var(--green)' : 'var(--cyan)';
 
   return `
     <div class="card ${disabledClass}">
       <div class="card-header">
-        <span class="card-name">${statusIcon} ${name}</span>
-        <span class="card-priority-badge ${rankClass}">#${rank} Priority</span>
+        <span class="card-name">${statusIcon} ${name} <span style="font-size:8px;color:${typeColor};font-weight:400">${typeLabel}</span></span>
+        <span class="card-priority-badge ${rankClass}">#${rank}</span>
       </div>
       <div class="card-row"><span class="card-label">Account ID</span><span class="card-value">${acctId}</span></div>
       <div class="card-row"><span class="card-label">Token</span><span class="card-value" style="color:${hasToken ? 'var(--green)' : 'var(--red)'}">${tokenPreview}</span></div>
@@ -337,23 +374,6 @@ function renderCard(a, i, total, type) {
       ${actions}
     </div>
   `;
-}
-
-function renderAll() {
-  // Fetch server accounts
-  fetch(FN + '?action=accounts')
-    .then(r => r.json())
-    .then(data => {
-      const serverAccts = data.accounts || [];
-      const customAccts = loadCustomAccounts();
-      renderAccounts(serverAccts, customAccts);
-      $('fc-status').className = 'status ok';
-      $('fc-status').textContent = '✅ Loaded ' + serverAccts.length + ' server + ' + customAccts.length + ' custom accounts';
-    })
-    .catch(e => {
-      $('fc-status').className = 'status err';
-      $('fc-status').textContent = '❌ Failed to load: ' + e.message;
-    });
 }
 
 // ─── Account Management ───
@@ -397,31 +417,82 @@ function addAccount() {
   $('input-secret').value = '';
   $('btn-add').disabled = true;
 
+  renderAll();
   $('fc-status').className = 'status ok';
-  $('fc-status').textContent = '✅ Added "' + name + '"! It will be used for future searches.';
+  $('fc-status').textContent = '✅ Added "' + name + '"!';
 }
 
-function removeAccount(idx) {
-  const accts = loadCustomAccounts();
-  const name = accts[idx]?.name || '?';
-  accts.splice(idx, 1);
-  saveCustomAccounts(accts);
+function removeAccount(name, isCustom) {
+  if (isCustom) {
+    // Custom account: remove from localStorage entirely
+    let accts = loadCustomAccounts();
+    accts = accts.filter(a => a.name !== name);
+    saveCustomAccounts(accts);
+  }
+  // Add to removed list (so server/built-in accounts also get hidden)
+  const removed = loadRemoved();
+  if (!removed.includes(name)) {
+    removed.push(name);
+    saveRemoved(removed);
+  }
+  // Clean up order
+  const order = loadOrder();
+  const newOrder = order.filter(n => n !== name);
+  if (newOrder.length !== order.length) saveOrder(newOrder);
+  
+  renderAll();
   $('fc-status').className = 'status info';
-  $('fc-status').textContent = '🗑️ Removed "' + name + '"';
+  $('fc-status').textContent = '🗑️ Removed "' + name + '". Use "Restore" to bring it back.';
+}
+
+function restoreAll() {
+  saveRemoved([]);
+  renderAll();
+  $('fc-status').className = 'status ok';
+  $('fc-status').textContent = '🔙 All accounts restored!';
 }
 
 function moveUp(idx) {
-  if (idx <= 0) return;
-  const accts = loadCustomAccounts();
-  [accts[idx-1], accts[idx]] = [accts[idx], accts[idx-1]];
-  saveCustomAccounts(accts);
+  if (idx <= 0 || idx >= allMergedAccounts.length) return;
+  [allMergedAccounts[idx-1], allMergedAccounts[idx]] = [allMergedAccounts[idx], allMergedAccounts[idx-1]];
+  saveCurrentOrder();
+  renderAll();
 }
 
 function moveDown(idx) {
-  const accts = loadCustomAccounts();
-  if (idx >= accts.length - 1) return;
-  [accts[idx], accts[idx+1]] = [accts[idx+1], accts[idx]];
-  saveCustomAccounts(accts);
+  if (idx < 0 || idx >= allMergedAccounts.length - 1) return;
+  [allMergedAccounts[idx], allMergedAccounts[idx+1]] = [allMergedAccounts[idx+1], allMergedAccounts[idx]];
+  saveCurrentOrder();
+  renderAll();
+}
+
+function maskToken(t) {
+  if (!t) return '';
+  if (t.length <= 24) return t.slice(0, 10) + '...';
+  return t.slice(0, 20) + '...';
+}
+
+function renderAll() {
+  // Fetch server accounts
+  fetch(FN + '?action=accounts')
+    .then(r => r.json())
+    .then(data => {
+      const serverAccts = data.accounts || [];
+      const customAccts = loadCustomAccounts();
+      const merged = mergeAccounts(serverAccts, customAccts);
+      renderAllAccounts(merged);
+      const enabled = merged.filter(a => isEnabled(a.name, true));
+      $('fc-status').className = 'status ok';
+      $('fc-status').textContent = '📋 ' + merged.length + ' accounts · ' + enabled.length + ' ON · ' + (merged.length - enabled.length) + ' OFF';
+    })
+    .catch(e => {
+      // Offline fallback: show custom accounts only
+      const customAccts = loadCustomAccounts();
+      const merged = mergeAccounts([], customAccts);
+      renderAllAccounts(merged);
+      $('fc-status').className = 'status err';
+      $('fc-status').textContent = '⚠️ Server offline — showing custom accounts only.';
+    });
 }
 
 // Form validation
@@ -431,10 +502,8 @@ function moveDown(idx) {
   });
 });
 
-// Click handler for Add Account button
 $('btn-add').addEventListener('click', addAccount);
 
-// Allow Enter key to submit
 document.querySelectorAll('.form-row input').forEach(el => {
   el.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !$('btn-add').disabled) addAccount();
